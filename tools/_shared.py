@@ -11,7 +11,7 @@ Cách dùng trong một tool:
     store.find_customers("010190001234")   # tìm theo CCCD / mã KH / số khế ước / tên
     store.phan_loai_ho("010190001234")     # "Hộ nghèo" / "Hộ cận nghèo" / "" (theo DS hộ nghèo đã nạp)
 
-Dữ liệu lưu ở saoke_data.pkl và hongheo_data.pkl cạnh file này, nên lần sau mở launcher có dữ liệu ngay.
+Dữ liệu lưu trong thư mục dữ liệu chung của chương trình (xem _paths.py), nên lần sau mở launcher có dữ liệu ngay.
 File bắt đầu bằng "_" nên launcher không coi đây là một tool.
 """
 import logging
@@ -19,16 +19,19 @@ import numbers
 import os
 import pickle
 import re
-import sys
 import unicodedata
 from datetime import date, datetime
 
 import pandas as pd
 
-BASE_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
-SAOKE_FILE = os.path.join(BASE_DIR, "saoke_data.pkl")
-HONGHEO_FILE = os.path.join(BASE_DIR, "hongheo_data.pkl")
-LEGACY_FILE = os.path.join(BASE_DIR, "tracuu_data.pkl")      # bản cũ lưu sao kê + hộ nghèo chung 1 file
+try:
+    from . import _paths as paths
+except ImportError:          # chạy trực tiếp, không qua launcher
+    import _paths as paths
+
+SAOKE_FILE = paths.data_path("saoke.pkl")
+HONGHEO_FILE = paths.data_path("hongheo.pkl")
+LEGACY_FILE = paths.data_path("tracuu_legacy.pkl")           # bản cũ lưu sao kê + hộ nghèo chung 1 file (đọc xong thì xóa)
 
 # Tên cột có thể gặp trong file sao kê
 K_TEN = ("Tên KH", "Tên khách hàng", "Họ tên")
@@ -179,7 +182,7 @@ class SaoKeStore:
 
     def _write_pickle(self, path, obj):
         try:
-            with open(path, "wb") as fh:
+            with open(paths.ensure_parent(path), "wb") as fh:
                 pickle.dump(obj, fh, protocol=pickle.HIGHEST_PROTOCOL)
         except OSError as e:
             logging.warning("Không lưu được %s: %s", os.path.basename(path), e)
@@ -200,6 +203,7 @@ class SaoKeStore:
                 if not self.ho_ngheo and d.get("ho_ngheo"):
                     self.ho_ngheo = d["ho_ngheo"]
                     self._save_ho_ngheo()
+                os.remove(LEGACY_FILE)                       # đã chuyển sang file mới, bỏ file cũ cho gọn
         except Exception as e:
             logging.warning("Không đọc được dữ liệu dùng chung đã lưu: %s", e)
         self._ho_map = build_map_ho_ngheo(self.ho_ngheo)

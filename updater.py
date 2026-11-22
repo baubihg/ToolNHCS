@@ -28,8 +28,9 @@ import urllib.request
 import tkinter as tk
 from tkinter import ttk
 
+from tools import _paths as paths
 from tools import _ui as ui
-from version import APP_VERSION
+from version import APP_NAME, APP_VERSION
 
 # ---------- Cấu hình ----------
 REPO = "baubihg/ToolNHCS"
@@ -58,10 +59,6 @@ def exe_path():
     return os.path.abspath(sys.executable)
 
 
-def _state_file():
-    return os.path.join(os.path.dirname(exe_path()), "update_state.json")
-
-
 def parse_version(text):
     nums = re.findall(r"\d+", text or "")
     return tuple(int(n) for n in nums) or (0,)
@@ -76,19 +73,14 @@ def is_newer(remote, local):
 
 
 def mark_checked_ok():
-    try:
-        with open(_state_file(), "w", encoding="utf-8") as fh:
-            json.dump({"last_ok": time.time(), "version": APP_VERSION}, fh)
-    except OSError:
-        pass
+    paths.save_section("update", {"last_ok": time.time(), "version": APP_VERSION})
 
 
 def within_grace(now=None):
     """True nếu lần kiểm tra thành công gần nhất cách đây chưa quá OFFLINE_GRACE_DAYS ngày."""
     try:
-        with open(_state_file(), "r", encoding="utf-8") as fh:
-            last = float(json.load(fh).get("last_ok", 0))
-    except (OSError, ValueError, TypeError):
+        last = float(paths.load_section("update").get("last_ok", 0))
+    except (ValueError, TypeError):
         return False
     return 0 <= (now or time.time()) - last <= OFFLINE_GRACE_DAYS * 86400
 
@@ -256,7 +248,7 @@ class UpdateGate(tk.Frame):
         self.place(x=0, y=0, relwidth=1, relheight=1)
         root.protocol("WM_DELETE_WINDOW", self.quit_app)        # đóng cửa sổ = thoát chương trình
 
-        tk.Label(self, text="BỘ CÔNG CỤ", bg=ui.BG, fg=ui.TEXT,
+        tk.Label(self, text=APP_NAME, bg=ui.BG, fg=ui.TEXT,
                  font=ui.font(22, True)).place(relx=0.5, rely=0.2, anchor="center")
         tk.Label(self, text=f"Phiên bản {APP_VERSION}", bg=ui.BG, fg=ui.MUTED,
                  font=ui.font(10)).place(relx=0.5, rely=0.26, anchor="center")

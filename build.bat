@@ -7,6 +7,7 @@ for /f %%v in ('python -c "from version import APP_VERSION as v; print(v)"') do 
 echo === Dong goi ToolNHCS phien ban %VER% ===
 
 python -m PyInstaller --clean --noconsole --onefile --name "ToolNHCS" ^
+  --icon "assets\app.ico" --add-data "assets;assets" ^
   --add-data "tools;tools" --collect-submodules tools ^
   --hidden-import openpyxl --collect-all pdfplumber --collect-all pdfminer --collect-all pypdfium2 --collect-data docx ^
   launcher.py

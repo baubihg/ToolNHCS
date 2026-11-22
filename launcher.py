@@ -1,5 +1,7 @@
 # launcher.py
 import importlib
+import logging
+import os
 import pkgutil
 import traceback
 import tkinter as tk
@@ -7,9 +9,10 @@ from tkinter import filedialog, messagebox
 
 import tools                      # thư mục tools/ (có __init__.py)
 import updater                    # cập nhật bắt buộc qua GitHub Releases
+from tools import _paths as paths # nơi lưu dữ liệu / cấu hình / nhật ký
 from tools import _ui as ui       # giao diện dùng chung
 from tools._shared import store   # dữ liệu sao kê dùng chung cho mọi tool
-from version import APP_VERSION
+from version import APP_NAME, APP_VERSION
 
 
 def discover_tools():
@@ -32,10 +35,20 @@ def discover_tools():
 
 
 class Launcher(tk.Tk):
+    def report_callback_exception(self, exc, val, tb):
+        """Lỗi bất ngờ trong giao diện: ghi nhật ký + báo gọn (bản exe không có cửa sổ lệnh để xem lỗi)."""
+        logging.error("Lỗi chưa xử lý", exc_info=(exc, val, tb))
+        messagebox.showerror("Có lỗi xảy ra", f"{exc.__name__}: {val}\n\nChi tiết đã ghi vào:\n{paths.log_path()}")
+
     def __init__(self):
         super().__init__()
+        paths.setup_logging()
         ui.apply_theme(self)
-        self.title("Bộ công cụ")
+        self.title(APP_NAME)
+        try:                                           # icon cửa sổ + thanh tác vụ (áp dụng cho cả hộp thoại)
+            self.iconbitmap(default=paths.resource_path(os.path.join("assets", "app.ico")))
+        except tk.TclError:
+            pass
         self.geometry("1180x760")
         self.minsize(960, 620)
 
@@ -48,13 +61,15 @@ class Launcher(tk.Tk):
             self._build_ui()
 
     def _build_ui(self):
+        paths.ensure_output_dirs()          # lần đầu chạy: tự tạo "Thong bao phe duyet" và "Hop dong GQVL"
+
         # ---------- Sidebar trái ----------
         self.sidebar = tk.Frame(self, width=230, bg=ui.SIDEBAR)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
-        tk.Label(self.sidebar, text="BỘ CÔNG CỤ", bg=ui.SIDEBAR, fg="white",
-                 font=ui.font(14, True), anchor="w").pack(fill="x", padx=20, pady=(24, 2))
+        tk.Label(self.sidebar, text=APP_NAME, bg=ui.SIDEBAR, fg="white",
+                 font=ui.font(13, True), anchor="w").pack(fill="x", padx=20, pady=(24, 2))
         tk.Label(self.sidebar, text="Chọn một công cụ bên dưới", bg=ui.SIDEBAR, fg="#8fa1b3",
                  font=ui.font(9), anchor="w").pack(fill="x", padx=20, pady=(0, 18))
 
@@ -147,8 +162,10 @@ class Launcher(tk.Tk):
         return btn
 
     def register(self, name, app_class):
+        """Đăng ký một tool; số thứ tự tự tăng theo thứ tự (TOOL_ORDER) nên tool thêm sau tự có số tiếp theo."""
         self._classes[name] = app_class
-        self._buttons[name] = self._add_button(name, lambda n=name: self.show(n))
+        number = len(self._classes)
+        self._buttons[name] = self._add_button(f"{number}. {name}", lambda n=name: self.show(n))
 
     def register_error(self, mod_name, tb):
         self._add_button(f"⚠ {mod_name}", lambda: messagebox.showerror(
@@ -178,7 +195,7 @@ class Launcher(tk.Tk):
                 b.config(bg=ui.PRIMARY, hover=ui.PRIMARY_H)
             else:
                 b.config(bg=ui.SIDEBAR, hover=ui.SIDEBAR_BTN)
-        self.title(f"Bộ công cụ - {name}")
+        self.title(f"{APP_NAME} - {name}")
 
 
 if __name__ == "__main__":

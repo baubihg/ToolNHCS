@@ -29,18 +29,13 @@ from docx import Document
 
 try:
     from . import _ui as ui
+    from . import _paths as paths
 except ImportError:          # chạy trực tiếp file này, không qua launcher
     import _ui as ui
+    import _paths as paths
 
-BASE_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config_thongbao.json")
-LOG_FILE = os.path.join(BASE_DIR, "thongbao.log")
-
-try:
-    logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s", encoding="utf-8")
-except OSError:
-    pass
+paths.setup_logging()        # nhật ký chung của chương trình (chỉ tạo file khi có ghi)
+CONFIG_SECTION = "thongbao"  # mục cấu hình của tool này trong config.json
 
 # Tên cột Excel (đã chuẩn hóa bằng _norm: chữ thường, gộp khoảng trắng)
 COL_DIEM = "điểm giao dịch"
@@ -401,7 +396,7 @@ def parse_pdf(path):
 
 
 def dump_pdf_debug(pdf_path):
-    out = os.path.splitext(pdf_path)[0] + "_debug.txt"
+    out = paths.ensure_parent(os.path.join(os.path.dirname(paths.log_path()), "chan_doan_pdf.txt"))
     with pdfplumber.open(pdf_path) as pdf, open(out, "w", encoding="utf-8") as f:
         for i, page in enumerate(pdf.pages, 1):
             f.write(f"===== TRANG {i} - TEXT =====\n{page.extract_text()}\n")
@@ -665,7 +660,7 @@ def generate_files(ctx, form, base_dir):
             name = f"Mau06_{_safe_name(t['to'])}_{t['ma_to']}.docx"
             save_docx(doc, os.path.join(out_06, name), used)
             c06 += 1
-    return c04, c06, notes
+    return c04, c06, notes, os.path.join(base_dir, date_folder)
 
 
 # ================== GIAO DIỆN ==================
@@ -724,6 +719,18 @@ class ThongBaoGiaiNganApp:
             ui.RoundButton(g, text="Chọn", command=lambda v=var, t=ft: self.browse_file(v, t),
                            padx=14, pady=5, size=9).grid(row=i, column=2, padx=(8, 0))
 
+        # Thư mục xuất file (mặc định: "Thong bao phe duyet" cạnh chương trình)
+        r = len(rows)
+        self.out_dir_var = tk.StringVar(master=main, value=paths.output_dir("thongbao"))
+        ui.label(g, "Thư mục xuất file:").grid(row=r, column=0, sticky="w", pady=5, padx=(0, 12))
+        ttk.Entry(g, textvariable=self.out_dir_var, state="readonly").grid(row=r, column=1, sticky="ew", pady=5)
+        out_btns = tk.Frame(g, bg=ui.CARD)
+        out_btns.grid(row=r, column=2, padx=(8, 0))
+        ui.RoundButton(out_btns, text="Chọn", command=self.browse_out_dir, padx=14, pady=5,
+                       size=9).pack(side="left")
+        ui.secondary_button(out_btns, "Mở", lambda: paths.open_folder(self.out_dir_var.get()),
+                            padx=12, pady=5, size=9).pack(side="left", padx=(6, 0))
+
         # ---- Nút chạy ----
         bar = tk.Frame(main, bg=ui.BG)
         bar.pack(pady=14)
@@ -746,13 +753,8 @@ class ThongBaoGiaiNganApp:
             w.insert(0, _title(val))
 
     def load_config(self):
-        if not os.path.exists(CONFIG_FILE):
-            return
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
-                d = json.load(fh)
-        except (OSError, json.JSONDecodeError) as e:
-            logging.warning("Không đọc được config: %s", e)
+        d = paths.load_section(CONFIG_SECTION)
+        if not d:
             return
         self.entry_nguoi_lap.insert(0, d.get("nguoi_lap", ""))
         self.chuc_vu_var.set(d.get("chuc_vu", "Giám đốc"))
@@ -760,17 +762,23 @@ class ThongBaoGiaiNganApp:
         self.excel_path_var.set(d.get("excel_path", ""))
         self.template_04_var.set(d.get("template_04", ""))
         self.template_06_var.set(d.get("template_06", ""))
+        if d.get("out_dir"):
+            self.out_dir_var.set(d["out_dir"])
 
     def save_config(self):
         d = {"nguoi_lap": self.entry_nguoi_lap.get().strip(), "chuc_vu": self.chuc_vu_var.get(),
              "ten_lanh_dao": self.entry_ten_lanh_dao.get().strip(),
              "excel_path": self.excel_path_var.get(), "template_04": self.template_04_var.get(),
-             "template_06": self.template_06_var.get()}
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as fh:
-                json.dump(d, fh, ensure_ascii=False, indent=4)
-        except OSError as e:
-            logging.warning("Không lưu được config: %s", e)
+             "template_06": self.template_06_var.get(), "out_dir": self.out_dir_var.get()}
+        paths.save_section(CONFIG_SECTION, d)
+
+    def browse_out_dir(self):
+        cur = self.out_dir_var.get()
+        folder = filedialog.askdirectory(title="Chọn thư mục xuất file",
+                                         initialdir=cur if os.path.isdir(cur) else paths.output_dir("thongbao"))
+        if folder:
+            self.out_dir_var.set(os.path.normpath(folder))
+            self.save_config()
 
     def browse_file(self, var, ftype):
         types = {"Excel": [("Excel files", "*.xlsx *.xls")], "PDF": [("PDF files", "*.pdf")],
@@ -785,7 +793,9 @@ class ThongBaoGiaiNganApp:
             return
         try:
             out = dump_pdf_debug(self.pdf_path_var.get())
-            messagebox.showinfo("Chẩn đoán PDF", f"Đã ghi nội dung PDF đọc được ra:\n{out}")
+            if messagebox.askyesno("Chẩn đoán PDF", f"Đã ghi nội dung PDF đọc được ra:\n{out}\n\nMở file ngay?") \
+                    and hasattr(os, "startfile"):
+                os.startfile(out)
         except Exception as e:
             logging.exception("diagnose")
             messagebox.showerror("Lỗi", str(e))
@@ -799,7 +809,8 @@ class ThongBaoGiaiNganApp:
         form = {"nguoi_lap": self.entry_nguoi_lap.get().strip(), "chuc_vu": self.chuc_vu_var.get(),
                 "ten_lanh_dao": self.entry_ten_lanh_dao.get().strip(),
                 "excel": self.excel_path_var.get(), "pdf": self.pdf_path_var.get(),
-                "file_04": self.template_04_var.get(), "file_06": self.template_06_var.get()}
+                "file_04": self.template_04_var.get(), "file_06": self.template_06_var.get(),
+                "out_dir": self.out_dir_var.get().strip() or paths.output_dir("thongbao")}
         if not form["excel"] or not form["pdf"]:
             messagebox.showwarning("Lỗi", "Vui lòng chọn File Excel Dữ liệu và Danh sách phê duyệt giải ngân!")
             return
@@ -848,12 +859,13 @@ class ThongBaoGiaiNganApp:
         self.status.set("Đang tạo file Word...")
         self.root.update_idletasks()
         try:
-            c04, c06, notes = generate_files(ctx, form, os.path.dirname(form["excel"]))
+            c04, c06, notes, out_root = generate_files(ctx, form, form["out_dir"])
             self.status.set("")
-            msg = f"Thành công!\n- Tạo {c04} file Mẫu 04\n- Tạo {c06} file Mẫu 06"
+            msg = f"Thành công!\n- Tạo {c04} file Mẫu 04\n- Tạo {c06} file Mẫu 06\n\nĐã lưu trong:\n{out_root}"
             if notes:
                 msg += "\n\nLưu ý:\n" + "\n".join(notes)
-            messagebox.showinfo("Hoàn tất", msg)
+            if messagebox.askyesno("Hoàn tất", msg + "\n\nMở thư mục chứa file ngay?"):
+                paths.open_folder(out_root)
         except Exception as e:
             logging.exception("generate_files")
             self.status.set("")

@@ -26,15 +26,17 @@ from tkinter import ttk, filedialog, messagebox
 
 try:
     from . import _ui as ui
+    from . import _paths as paths
     from ._shared import store, get_field, cell_to_str, clean_header, row_empty, remove_accents, \
         K_TEN, K_CCCD, K_NGAYSINH, K_NGAYCAP, K_NOICAP, K_SDT, K_XA, K_DIACHI
 except ImportError:          # chạy trực tiếp file này, không qua launcher
     import _ui as ui
+    import _paths as paths
     from _shared import store, get_field, cell_to_str, clean_header, row_empty, remove_accents, \
         K_TEN, K_CCCD, K_NGAYSINH, K_NGAYCAP, K_NOICAP, K_SDT, K_XA, K_DIACHI
 
 BASE_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config_hopdong.json")
+CONFIG_SECTION = "hopdong"       # mục cấu hình của tool này trong config.json
 # File mẫu: ưu tiên bản đặt cạnh file exe (sửa mẫu không cần đóng gói lại), sau đó đến bản đóng gói sẵn bên trong exe
 if getattr(sys, "frozen", False):
     RESOURCE_DIR = os.path.join(getattr(sys, "_MEIPASS", BASE_DIR), "tools")
@@ -1001,11 +1003,7 @@ class HopDongApp:
 
     # ---------- cấu hình ----------
     def _load_config(self):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            return {}
+        return paths.load_section(CONFIG_SECTION)
 
     def _schedule_save(self, *_):
         """Lưu thông tin đơn vị cho vay sau khi ngừng gõ ~0,6 giây."""
@@ -1017,11 +1015,7 @@ class HopDongApp:
         self._save_job = None
         self.cfg.update({k: self.v[k].get().strip() for k in SAVE_KEYS})
         self.cfg.update(extra)
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as fh:
-                json.dump(self.cfg, fh, ensure_ascii=False, indent=4)
-        except OSError as e:
-            logging.warning("Không lưu được config hợp đồng: %s", e)
+        paths.save_section(CONFIG_SECTION, self.cfg)
 
     @staticmethod
     def _template_cfg(template):
@@ -1059,7 +1053,7 @@ class HopDongApp:
         default_name = safe_name(f"HopDong_{d['ho_ten']}_{d['so_hd']}") + ".docx"
         out = filedialog.asksaveasfilename(
             title="Lưu hợp đồng", defaultextension=".docx", initialfile=default_name,
-            initialdir=self.cfg.get("out_dir") or None, filetypes=[("Word files", "*.docx")])
+            initialdir=paths.output_dir("hopdong"), filetypes=[("Word files", "*.docx")])
         if not out:
             return
         try:
@@ -1073,7 +1067,7 @@ class HopDongApp:
             messagebox.showerror("Lỗi", f"Không tạo được hợp đồng:\n{e}")
             return
 
-        self._save_config(out_dir=os.path.dirname(out), **self._template_cfg(template))
+        self._save_config(**self._template_cfg(template))
         self.status.config(text=f"Đã tạo: {os.path.basename(out)}", fg=ui.OK)
         msg = "Đã tạo hợp đồng.\nMở file ngay?"
         if leftover:
@@ -1274,10 +1268,9 @@ class HopDongApp:
         template = self._find_template()
         if not template:
             return
-        folder = filedialog.askdirectory(title="Chọn thư mục lưu các hợp đồng",
-                                         initialdir=self.cfg.get("out_dir") or None)
-        if not folder:
-            return
+        # Mỗi đợt hàng loạt lưu vào một thư mục con riêng trong "Hop dong GQVL", tránh lẫn / ghi đè đợt trước
+        folder = os.path.join(paths.output_dir("hopdong"), datetime.now().strftime("Hang loat %d-%m-%Y %Hh%M"))
+        os.makedirs(folder, exist_ok=True)
 
         self.btn_all.config(state="disabled")
         self.progress.config(maximum=len(self.batch), value=0)
@@ -1292,7 +1285,7 @@ class HopDongApp:
         finally:
             self.btn_all.config(state="normal")
 
-        self._save_config(out_dir=folder, **self._template_cfg(template))
+        self._save_config(**self._template_cfg(template))
         self.b_status.config(text=f"Đã tạo {len(done)}/{len(self.batch)} hợp đồng",
                              fg=ui.OK if not errors else ui.ERR)
         msg = f"Đã tạo {len(done)} hợp đồng trong:\n{folder}"
@@ -1303,11 +1296,8 @@ class HopDongApp:
             msg += f"\n\n{len(errors)} dòng chưa tạo được:\n" + "\n".join(lines)
         if done:
             msg += "\n\nMở thư mục ngay?"
-            if messagebox.askyesno("Hoàn tất", msg) and hasattr(os, "startfile"):
-                try:
-                    os.startfile(folder)
-                except OSError:
-                    pass
+            if messagebox.askyesno("Hoàn tất", msg):
+                paths.open_folder(folder)
         else:
             messagebox.showwarning("Không tạo được hợp đồng nào", msg)
 

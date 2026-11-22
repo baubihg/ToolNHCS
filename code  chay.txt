@@ -1,0 +1,1 @@
+python -m PyInstaller --clean --noconsole --onefile --name "ToolNHCS" --add-data "tools;tools" --collect-submodules tools --hidden-import openpyxl --collect-all pdfplumber --collect-all pdfminer --collect-all pypdfium2 --collect-data docx launcher.py
