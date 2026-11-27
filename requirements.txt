@@ -1,8 +1,0 @@
-pandas
-numpy
-openpyxl
-xlrd
-lxml
-python-docx
-pdfplumber
-pyinstaller
